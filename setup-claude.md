@@ -1,17 +1,18 @@
-# Beads Context Hooks (Claude Code)
+# ContextWeave Setup for Claude Code
 
-This setup reuses the same hook scripts but **Claude’s event names and payloads differ**, so the hook bindings are different.
+This guide wires Claude Code hook events to the scripts in this repository.
 
-> Replace `/path/to/hooks` with the absolute path to your cloned hooks repo.
+> Replace `/absolute/path/to/ContextWeave` with the absolute path to this repo.
 
-## Supported trace capture (Claude)
-- **Prompt**: `UserPromptSubmit`
-- **Tool call**: `PreToolUse`
-- **Tool result**: `PostToolUse` and `PostToolUseFailure`
-- **Final response**: `Stop`
-- **Intermediate output**: not available via hooks (Claude does not emit chunk events)
+## What Claude Captures
 
-## Hook bindings (Claude Code)
+- Prompt: `UserPromptSubmit`
+- Tool call: `PreToolUse`
+- Tool result: `PostToolUse` and `PostToolUseFailure`
+- Final response: `Stop`
+- Intermediate output: not available from Claude in this setup
+
+## Hook Bindings
 
 ```json
 {
@@ -21,9 +22,9 @@ This setup reuses the same hook scripts but **Claude’s event names and payload
         "matcher": "startup",
         "hooks": [
           {
-            "name": "beads-context-start",
+            "name": "contextweave-start",
             "type": "command",
-            "command": "node /path/to/hooks/1-context-start.js"
+            "command": "node /absolute/path/to/ContextWeave/1-context-start.js"
           }
         ]
       }
@@ -33,9 +34,9 @@ This setup reuses the same hook scripts but **Claude’s event names and payload
         "matcher": "*",
         "hooks": [
           {
-            "name": "beads-context-before-agent",
+            "name": "contextweave-before-agent",
             "type": "command",
-            "command": "node /path/to/hooks/2-context-before-agent.js"
+            "command": "node /absolute/path/to/ContextWeave/2-context-before-agent.js"
           }
         ]
       }
@@ -45,9 +46,9 @@ This setup reuses the same hook scripts but **Claude’s event names and payload
         "matcher": "*",
         "hooks": [
           {
-            "name": "beads-context-after-tool",
+            "name": "contextweave-after-tool",
             "type": "command",
-            "command": "node /path/to/hooks/7-context-after-tool.js"
+            "command": "node /absolute/path/to/ContextWeave/7-context-after-tool.js"
           }
         ]
       }
@@ -57,9 +58,9 @@ This setup reuses the same hook scripts but **Claude’s event names and payload
         "matcher": "*",
         "hooks": [
           {
-            "name": "beads-context-after-tool",
+            "name": "contextweave-after-tool",
             "type": "command",
-            "command": "node /path/to/hooks/7-context-after-tool.js"
+            "command": "node /absolute/path/to/ContextWeave/7-context-after-tool.js"
           }
         ]
       }
@@ -69,9 +70,9 @@ This setup reuses the same hook scripts but **Claude’s event names and payload
         "matcher": "*",
         "hooks": [
           {
-            "name": "beads-context-after-tool",
+            "name": "contextweave-after-tool",
             "type": "command",
-            "command": "node /path/to/hooks/7-context-after-tool.js"
+            "command": "node /absolute/path/to/ContextWeave/7-context-after-tool.js"
           }
         ]
       }
@@ -81,9 +82,9 @@ This setup reuses the same hook scripts but **Claude’s event names and payload
         "matcher": "*",
         "hooks": [
           {
-            "name": "beads-context-precompress",
+            "name": "contextweave-precompress",
             "type": "command",
-            "command": "node /path/to/hooks/3-context-precompress.js"
+            "command": "node /absolute/path/to/ContextWeave/3-context-precompress.js"
           }
         ]
       }
@@ -93,9 +94,9 @@ This setup reuses the same hook scripts but **Claude’s event names and payload
         "matcher": "*",
         "hooks": [
           {
-            "name": "beads-context-after-agent",
+            "name": "contextweave-after-agent",
             "type": "command",
-            "command": "node /path/to/hooks/6-context-after-agent.js"
+            "command": "node /absolute/path/to/ContextWeave/6-context-after-agent.js"
           }
         ]
       }
@@ -105,9 +106,9 @@ This setup reuses the same hook scripts but **Claude’s event names and payload
         "matcher": "*",
         "hooks": [
           {
-            "name": "beads-context-end",
+            "name": "contextweave-end",
             "type": "command",
-            "command": "node /path/to/hooks/5-context-end.js"
+            "command": "node /absolute/path/to/ContextWeave/5-context-end.js"
           }
         ]
       }
@@ -118,9 +119,20 @@ This setup reuses the same hook scripts but **Claude’s event names and payload
 
 ## Notes
 
-- Prompt/Tool/Final are logged as **parent/child** issues under the prompt.
-- If a prompt is interrupted (no final and a new prompt arrives), it’s labeled `interrupted` and closed.
-- Tool outputs are **truncated snippets**; rerun tools to recover full output if needed.
-- Provider mapping lives in `hooks/mappers/claude.js`.
-- SessionStart injects `bd prime --full`, **all prompt → final summaries**, and **open issues** (non-trace).
-- SessionStart and UserPromptSubmit default to **plain-text injection** for Claude (to avoid strict JSON validation errors and to ensure context is injected). If you want JSON output for UserPromptSubmit, set `CLAUDE_HOOK_MODE=json` on that hook command.
+- Prompt, tool, and final records are stored as parent/child Beads issues under the current prompt.
+- If a new prompt starts before the previous one is finalized, the earlier prompt is labeled `interrupted`.
+- Tool outputs are truncated snippets, not full payload archives.
+- Provider mapping lives in [mappers/claude.js](mappers/claude.js).
+- Session start injects `bd prime --full`, all prompt/final summaries, and open non-trace issues.
+
+## Optional JSON Output for `UserPromptSubmit`
+
+Claude defaults to plain-text-safe output for `UserPromptSubmit`. If you need JSON output there, set `CLAUDE_HOOK_MODE=json` on that command:
+
+```json
+{
+  "name": "contextweave-before-agent",
+  "type": "command",
+  "command": "CLAUDE_HOOK_MODE=json node /absolute/path/to/ContextWeave/2-context-before-agent.js"
+}
+```

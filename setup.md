@@ -1,11 +1,40 @@
-# Beads Context Hooks
+# ContextWeave Setup
 
-Choose your provider-specific setup:
+ContextWeave is a set of Node hook scripts that expect:
 
-- `setup-gemini.md` — Gemini CLI events and settings
-- `setup-claude.md` — Claude Code events and settings
+- `bd` on `PATH`
+- a Beads workspace initialized in the project you want to augment
+- a local clone of this repo, referenced by absolute path in the provider hook config
 
-Both providers use the same hook scripts and Beads trace model. Provider payloads are normalized in `payload.js` and `mappers/`.
-- Prompts stay **open** until a final response is logged. When a new prompt starts while the previous prompt has no final, the prior prompt is labeled `interrupted`, annotated with the last child snippet, and closed.
+## Prerequisites
 
-Gemini CLI should set `HOOK_PROVIDER=gemini` in each hook command to ensure JSON output (otherwise hooks may fall back to Claude-safe plain text).
+Initialize Beads in the target workspace if needed:
+
+```bash
+bd init --prefix CW
+```
+
+Make sure the provider can execute commands such as:
+
+```bash
+node /absolute/path/to/ContextWeave/1-context-start.js
+```
+
+## Choose a Provider Guide
+
+- [setup-gemini.md](setup-gemini.md)
+- [setup-claude.md](setup-claude.md)
+
+## Shared Behavior
+
+Both providers use the same underlying scripts:
+
+- prompt logging
+- tool call and tool result logging
+- final response logging
+- `bd prime --full` context injection at session start
+- post-compaction rehydration via `.beads/.needs_rehydrate`
+
+The only major runtime difference is that Gemini can log intermediate model chunks and Claude cannot in this setup.
+
+Gemini commands in this repo explicitly set `HOOK_PROVIDER=gemini` so the output stays JSON-shaped. Claude can optionally use `CLAUDE_HOOK_MODE=json`, but the default path is plain-text-safe output for `UserPromptSubmit`.

@@ -1,18 +1,34 @@
-# ADR 002: Ordered Sequence Loading vs. Naive Context Dumping
+# ADR 002: Rehydration Packs Instead of Full-History Dumping
 
 ## Status
+
 Accepted
 
 ## Context
-When an agent starts a new session or recovers from a crash, it needs to be "rehydrated" with project context. Simply dumping the entire project history into the prompt is token-inefficient and risks confusing the LLM with stale or contradictory information.
+
+When an agent starts a session or returns from compaction, it needs enough context to resume work without being flooded by stale history.
+
+A naive full-history dump would waste tokens and make it harder for the agent to distinguish active work from old traces.
 
 ## Decision
-ContextWeave implements **Ordered Sequence Loading**. The system performs a topological sort of the beads (tasks and decisions) and injects them in a structured, hierarchical sequence. Only unblocked, relevant tasks are presented as "Active," while historical context is provided as a compressed summary.
+
+ContextWeave rehydrates with a compact, deterministic pack built from:
+
+- `bd prime --full`
+- prompt/final summaries from earlier traces
+- open non-trace issues
+- a focused memory pack built from pinned, decision, ready, and dependency-related issues
+
+The pack is injected at session start and after compaction markers are detected.
 
 ## Consequences
-- **Token Efficiency**: Drastically reduces the "prompt tax" on every turn.
-- **Focus**: The agent is forced to focus on the current unblocked task, eliminating hallucinated sequencing.
+
+- The model receives current workflow memory without replaying every historical message.
+- Rehydration stays aligned with the actual Beads workspace instead of a free-form summary file.
+- The hook layer can re-run the same rehydration logic after every compaction event.
 
 ## Alternatives Considered
-- **Naive Full-History Injection**: Rejected due to context window limits and cost.
-- **Manual Summary Maintenance**: Rejected as it depends on the agent accurately updating its own summary, which frequently fails under stress.
+
+- Full transcript injection: rejected because it is token-heavy and noisy.
+- Manual summary maintenance: rejected because it depends on the model to keep summaries accurate.
+- No rehydration: rejected because compaction would drop important project context between turns.

@@ -1,18 +1,34 @@
-# ADR 003: Deterministic Policy Enforcement via Hooks
+# ADR 003: Deterministic Hook Control Points
 
 ## Status
+
 Accepted
 
 ## Context
-LLMs are inherently non-deterministic, making them difficult to secure. System prompts ("Don't write secrets") are easily bypassed via prompt injection or simple forgetting.
+
+Provider hooks are the only reliable place to observe prompt boundaries, tool events, final responses, and compaction markers without asking the model to self-report them.
+
+If those responsibilities are left inside the model loop, trace ordering and rehydration behavior become inconsistent.
 
 ## Decision
-ContextWeave utilizes **Synchronous Hooks** to enforce deterministic policies *outside* the LLM's reasoning loop. Before an agent executes a tool (e.g., `write_file`), a hook script validates the payload against security policies (redacting secrets) and checks for architectural compliance.
+
+ContextWeave uses synchronous hook scripts as the control points for:
+
+- prompt, tool, intermediate, and final trace logging
+- session-start context injection
+- compaction reminders
+- post-compaction rehydration markers
+- provider-specific output formatting
+
+The model receives the results of that hook work, but it does not control the hook workflow itself.
 
 ## Consequences
-- **Hard Security**: Policies are enforced by code, not just suggestions.
-- **Redaction**: Sensitive data is blocked before it ever hits the model or the disk.
+
+- Trace ordering is deterministic and independent of model phrasing.
+- Rehydration behavior is repeatable after compaction.
+- Provider-specific differences can be handled in `payload.js` and `output.js` without duplicating trace logic.
 
 ## Alternatives Considered
-- **LLM-Based Moderation**: Rejected as it is subject to the same non-deterministic failures as the agent itself.
-- **Post-hoc Auditing**: Rejected because it only detects breaches after they have occurred.
+
+- Model self-reporting: rejected because it is incomplete and non-deterministic.
+- Post-hoc transcript scraping only: rejected because it misses the chance to inject context at the right lifecycle boundaries.

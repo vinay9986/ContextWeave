@@ -1,74 +1,63 @@
-# Beads Context Hooks (Gemini CLI)
+# ContextWeave Setup for Gemini CLI
 
-This setup uses a **low‑overhead, trace‑focused flow**:
+This guide wires Gemini CLI hook events to the scripts in this repository.
 
-> Replace `/path/to/hooks` with the absolute path to your cloned hooks repo.
+> Replace `/absolute/path/to/ContextWeave` with the absolute path to this repo.
 
-- **`bd prime`** = workflow memory (how to use Beads)
-- **Trace logging** = prompt → tool call/result → intermediate chunks → final (snippets only)
+## Repo-Root Scripts Used by Gemini
 
-## Files in this repo
+- `1-context-start.js`
+- `2-context-before-agent.js`
+- `3-context-precompress.js`
+- `5-context-end.js`
+- `6-context-after-agent.js`
+- `7-context-after-tool.js`
+- `8-context-after-model.js`
+- `payload.js`
+- `output.js`
+- `trace-utils.js`
+- `mappers/gemini.js`
 
-Hook scripts (self-contained, no external script dependencies):
-- `hooks/1-context-start.js`
-- `hooks/2-context-before-agent.js`
-- `hooks/6-context-after-agent.js`
-- `hooks/7-context-after-tool.js`
-- `hooks/8-context-after-model.js`
-- `hooks/3-context-precompress.js`
-- `hooks/4-context-postcompress.js`
-- `hooks/5-context-end.js`
-- `hooks/trace-utils.js`
-- `hooks/payload.js` (provider mapper)
-- `hooks/output.js` (provider-specific output)
-- `hooks/mappers/gemini.js`
+`4-context-postcompress.js` is present in the repo as an optional helper, but it is not required by the default Gemini hook config below.
 
-## Hook behavior (Gemini)
+## Hook Behavior
 
 ### SessionStart
+
 Injects:
+
 - `bd prime --full`
-- **All prompt → final summaries** (oldest → newest)
-- **Open issues** (non-trace)
-Output format:
-- `hookSpecificOutput.additionalContext` (model sees it)
-- `systemMessage` (user-visible confirmation)
+- all prompt/final summaries
+- open non-trace issues
 
 ### BeforeAgent
-Behavior:
-- Logs the **prompt** to Beads (parent node).
-- If compaction just occurred, rehydrates `bd prime --full` + context pack + recent summary.
-Output format:
-- `hookSpecificOutput.additionalContext`
+
+- logs the new prompt
+- injects the post-compaction rehydration pack when `.beads/.needs_rehydrate` exists
+- otherwise injects a strict reminder to persist durable work into Beads
 
 ### AfterAgent
-Behavior:
-- Logs the **final answer** to Beads (child of current prompt).
-Output format:
-- Silent (empty JSON).
+
+- logs the final answer
 
 ### AfterTool
-Behavior:
-- Logs **tool call** and **tool result** to Beads (children of current prompt).
-Output format:
-- Silent (empty JSON).
+
+- logs tool call and tool result snippets
 
 ### AfterModel
-Behavior:
-- Logs **intermediate output chunks** (limited to 3 per prompt).
-Output format:
-- Silent (empty JSON).
+
+- logs up to three intermediate output chunks per prompt
 
 ### PreCompress
-Injects:
-- reminder to update Beads memory before compaction
-- writes `.beads/.needs_rehydrate` so the next prompt rehydrates after compaction
+
+- reminds the agent to update Beads before compaction
+- writes `.beads/.needs_rehydrate` so the next prompt rehydrates context
 
 ### SessionEnd
-Injects:
-- (silent) outputs empty JSON (no user-visible message)
 
-## settings.json (Gemini CLI)
+- returns an empty JSON object
+
+## `settings.json` Example
 
 ```json
 {
@@ -78,9 +67,9 @@ Injects:
         "matcher": "startup",
         "hooks": [
           {
-            "name": "beads-context-start",
+            "name": "contextweave-start",
             "type": "command",
-            "command": "HOOK_PROVIDER=gemini node /path/to/hooks/1-context-start.js"
+            "command": "HOOK_PROVIDER=gemini node /absolute/path/to/ContextWeave/1-context-start.js"
           }
         ]
       }
@@ -90,9 +79,9 @@ Injects:
         "matcher": "*",
         "hooks": [
           {
-            "name": "beads-context-before-agent",
+            "name": "contextweave-before-agent",
             "type": "command",
-            "command": "HOOK_PROVIDER=gemini node /path/to/hooks/2-context-before-agent.js"
+            "command": "HOOK_PROVIDER=gemini node /absolute/path/to/ContextWeave/2-context-before-agent.js"
           }
         ]
       }
@@ -102,9 +91,9 @@ Injects:
         "matcher": "*",
         "hooks": [
           {
-            "name": "beads-context-after-agent",
+            "name": "contextweave-after-agent",
             "type": "command",
-            "command": "HOOK_PROVIDER=gemini node /path/to/hooks/6-context-after-agent.js"
+            "command": "HOOK_PROVIDER=gemini node /absolute/path/to/ContextWeave/6-context-after-agent.js"
           }
         ]
       }
@@ -114,9 +103,9 @@ Injects:
         "matcher": "*",
         "hooks": [
           {
-            "name": "beads-context-after-tool",
+            "name": "contextweave-after-tool",
             "type": "command",
-            "command": "HOOK_PROVIDER=gemini node /path/to/hooks/7-context-after-tool.js"
+            "command": "HOOK_PROVIDER=gemini node /absolute/path/to/ContextWeave/7-context-after-tool.js"
           }
         ]
       }
@@ -126,9 +115,9 @@ Injects:
         "matcher": "*",
         "hooks": [
           {
-            "name": "beads-context-after-model",
+            "name": "contextweave-after-model",
             "type": "command",
-            "command": "HOOK_PROVIDER=gemini node /path/to/hooks/8-context-after-model.js"
+            "command": "HOOK_PROVIDER=gemini node /absolute/path/to/ContextWeave/8-context-after-model.js"
           }
         ]
       }
@@ -138,9 +127,9 @@ Injects:
         "matcher": "*",
         "hooks": [
           {
-            "name": "beads-context-precompress",
+            "name": "contextweave-precompress",
             "type": "command",
-            "command": "HOOK_PROVIDER=gemini node /path/to/hooks/3-context-precompress.js"
+            "command": "HOOK_PROVIDER=gemini node /absolute/path/to/ContextWeave/3-context-precompress.js"
           }
         ]
       }
@@ -150,9 +139,9 @@ Injects:
         "matcher": "*",
         "hooks": [
           {
-            "name": "beads-context-end",
+            "name": "contextweave-end",
             "type": "command",
-            "command": "HOOK_PROVIDER=gemini node /path/to/hooks/5-context-end.js"
+            "command": "HOOK_PROVIDER=gemini node /absolute/path/to/ContextWeave/5-context-end.js"
           }
         ]
       }
@@ -163,10 +152,10 @@ Injects:
 
 ## Notes
 
-- Prompts stay **open** until a final response is logged. When a new prompt starts while the previous prompt has no final, the prior prompt is labeled `interrupted`, annotated with the last child snippet, and closed.
-- If a **Request cancelled** event appears in the transcript between prompts, the prior prompt is marked `interrupted` even if it emitted partial output.
-- Trace logging writes issues with labels: `trace`, `prompt`, `tool_call`, `tool_result`, `intermediate`, `final`.
-- Tool outputs are **truncated snippets**; rerun tools to recover full output if needed.
-- Beads v0.49.1 does **not** have `bd pin` or `bd decision`. Use:
-  - Pinned memory: `bd update <id> --add-label pinned`
-  - Decisions: `bd update <id> --add-label decision` (or create with that label)
+- Prompts remain open until a final response is logged.
+- If Gemini emits a cancellation and a new prompt arrives, the prior prompt can be marked `interrupted`.
+- Tool outputs are truncated snippets, not a full replay log.
+- Provider mapping lives in [mappers/gemini.js](mappers/gemini.js).
+- Beads v0.49.1 does not have `bd pin` or `bd decision`. Use labels instead:
+  - `bd update <id> --add-label pinned`
+  - `bd update <id> --add-label decision`

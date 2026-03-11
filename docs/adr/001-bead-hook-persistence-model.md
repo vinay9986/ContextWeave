@@ -1,21 +1,36 @@
-# ADR 001: The Bead-Hook Persistence Model
+# ADR 001: The Beads Plus Hooks Persistence Model
 
 ## Status
+
 Accepted
 
 ## Context
-Autonomous agents suffer from "context window exhaustion" and "LLM amnesia." As sessions grow, agents lose track of architectural decisions, dependencies, and project state. Traditional flat files (like TODO.md) are unstructured and token-heavy.
+
+Long-running coding sessions need two things at the same time:
+
+- durable project memory that survives compaction and restarts
+- deterministic capture points for prompts, tool activity, and final responses
+
+Relying on the model to maintain memory files is brittle, and building a separate service would add unnecessary operational weight for a hook-driven workflow.
 
 ## Decision
-I have implemented a dual architecture:
-- **Beads**: A Git-native, append-only JSONL database for granular state tracking.
-- **Hooks**: Deterministic lifecycle scripts that synchronously intercept agent events to inject memory or enforce policies.
+
+ContextWeave persists state through:
+
+- Beads issues created through the `bd` CLI
+- synchronous provider hooks that log trace nodes and inject context
+- lightweight marker files in `.beads/`, including `.trace_state.json` and `.needs_rehydrate`
+
+The Beads issue graph is the durable source of truth for prompt trees and project memory. The local marker files only track hook workflow state.
 
 ## Consequences
-- **Immutable State**: Every state change is a new "bead" in the log, providing full auditability and idempotency.
-- **Git-Native**: Merging state between parallel agents is handled via standard Git workflows.
-- **Fault Tolerance**: Append-only logs prevent file corruption during agent crashes.
+
+- Prompt, tool, intermediate, and final events can be reconstructed as a parent/child trace tree.
+- Context injection stays deterministic because it runs in hook code, not inside the model's own output.
+- The implementation remains light enough for repo-local installation with no extra service process.
 
 ## Alternatives Considered
-- **Vector Database (RAG) Only**: Rejected because vector search lacks the strict temporal ordering and dependency awareness required for task management.
-- **Relational Databases (SQLite/PostgreSQL)**: While used as a read-model cache, they are rejected as the primary source of truth to avoid external infrastructure dependencies and binary lock-in.
+
+- Model-maintained memory files: rejected because updates are easy to forget or corrupt.
+- Standalone database service: rejected because the current workflow only needs Beads plus small local markers.
+- Pure transcript replay: rejected because it does not provide structured prompt trees or compaction-aware rehydration.
