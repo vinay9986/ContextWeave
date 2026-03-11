@@ -1,0 +1,12 @@
+{
+  "name": "contextweave",
+  "private": true,
+  "type": "commonjs",
+  "description": "Hook-based Beads context persistence for agent runtimes.",
+  "license": "Apache-2.0",
+  "scripts": {
+    "lint": "node --check 1-context-start.js 2-context-before-agent.js 3-context-precompress.js 4-context-postcompress.js 5-context-end.js 6-context-after-agent.js 7-context-after-tool.js 8-context-after-model.js payload.js output.js trace-utils.js mappers/claude.js mappers/gemini.js tests/*.js",
+    "test": "node --test tests/*.test.js",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=90 --test-coverage-exclude=tests/** --test-coverage-exclude=**/bin/bd tests/*.test.js"
+  }
+}

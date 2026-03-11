@@ -1,0 +1,14 @@
+repos:
+  - repo: local
+    hooks:
+      - id: node-check
+        name: node-check
+        entry: npm run lint
+        language: system
+        pass_filenames: false
+
+      - id: node-test-coverage
+        name: node-test-coverage
+        entry: npm run test:coverage
+        language: system
+        pass_filenames: false
