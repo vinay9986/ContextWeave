@@ -133,7 +133,7 @@ function buildContextPack() {
 
 const input = payload.readAndNormalize();
 
-const prime = safe('bd prime --full');
+const prime = safe('bd prime --full').split('\n').map(line => line.replace(/bd memories (<\w+>|\S+)/g, 'search-beads <query>')).join('\n');
 const memory = buildContextPack();
 
 const parts = [];
