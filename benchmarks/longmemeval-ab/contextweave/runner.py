@@ -1,25 +1,18 @@
 """
-Condition B — ContextWeave runner (faithful simulation).
+Condition B — ContextWeave runner for LongMemEval.
 
 Replicates exactly what ContextWeave does in production:
 
-  1. Ingest the MRCR conversation into beads (prompt + final, truncated to
-     ContextWeave's 1200-char limits).
+  1. Ingest all conversation sessions into beads (truncated summaries).
 
-  2. Inject the session-start context block — the same truncated
-     CONVERSATION HISTORY summary that 1-context-start.js builds, including
-     the `search-beads "<query>"` instruction that points to the Bash tool.
+  2. Inject the session-start context block — the truncated CONVERSATION
+     HISTORY summary that 1-context-start.js builds, including the
+     `search-beads "<query>"` instruction.
 
-  3. Expose a `Bash` tool — the LLM calls `search-beads "<query>"` exactly as
-     it would in production (Claude Code or Gemini CLI via their native shell
-     tool).  The benchmark intercepts the command and delegates to the Python
-     BeadStore so no actual subprocess is needed during the test.
+  3. Expose a Bash tool — the LLM calls `search-beads "<query>"` to retrieve
+     the full content of the most relevant past exchange.
 
-  4. Let the LLM answer the retrieval query. It decides whether the truncated
-     summary is sufficient or whether it needs to invoke search-beads.
-
-  5. Handle the tool-use loop: call search → inject result → re-query until
-     the model produces a final text answer.
+  4. Handle the tool-use loop until the model produces a final answer.
 
 This faithfully mirrors real ContextWeave: bounded context, structured
 retrieval advertised as a Bash command, LLM-driven decision-making.
@@ -31,10 +24,10 @@ import re
 
 import boto3
 
-from config import MAX_TOKENS, MODEL_ID, TEMPERATURE
+from config import CONTEXTWEAVE_TOP_K, MAX_TOKENS, MODEL_ID, TEMPERATURE
 from contextweave.bead_store import BeadStore
 
-# ── Tool definition — Bash (matches Claude Code / Gemini CLI native tool) ─────
+# ── Tool definition ────────────────────────────────────────────────────────────
 
 _BASH_TOOL = {
     "toolSpec": {
@@ -42,7 +35,7 @@ _BASH_TOOL = {
         "description": (
             "Execute a shell command. Use `search-beads \"<query>\"` to search "
             "the ContextWeave bead store when the CONVERSATION HISTORY summary "
-            "does not contain enough detail to answer the query."
+            "does not contain enough detail to answer the question."
         ),
         "inputSchema": {
             "json": {
@@ -67,27 +60,23 @@ Your conversation history has been stored as beads — structured, retrievable u
 
 {session_context}
 
-When answering the query below:
+When answering the question below:
 - First check if the CONVERSATION HISTORY summary above contains the answer.
-- If the summary is insufficient (e.g. the content is truncated), use the Bash
-  tool to run `search-beads "<query>"` and retrieve the full content of the
-  relevant exchange.
-- Reproduce the answer EXACTLY as it appeared, including any required prefix string.
-- Do not include any other text in your response beyond what is asked.\
+- If the summary is insufficient or truncated, use the Bash tool to run
+  `search-beads "<query>"` to retrieve the full content of the relevant exchange.
+  Make your query as specific as possible — include all distinguishing details.
+- Answer concisely. Give only the answer, no preamble.\
 """
 
-# Parses: search-beads "some query" or search-beads 'some query' or search-beads some query
 _SEARCH_BEADS_RE = re.compile(
     r"""search-beads\s+(?:"([^"]+)"|'([^']+)'|(.+))""",
     re.IGNORECASE,
 )
 
-# Max tool-use rounds before giving up
 _MAX_TOOL_ROUNDS = 3
 
 
 def _extract_search_query(command: str) -> str | None:
-    """Extract the query string from a `search-beads "<query>"` command."""
     m = _SEARCH_BEADS_RE.search(command)
     if not m:
         return None
@@ -97,33 +86,34 @@ def _extract_search_query(command: str) -> str | None:
 def run_contextweave(
     sample: dict,
     client: boto3.client,
-) -> tuple[str, int]:
+) -> tuple[str, int, dict]:
     """
-    Run the ContextWeave condition on a single MRCR sample.
+    Run the ContextWeave condition on a single LongMemEval sample.
 
     Args:
-        sample:  Normalised MRCR sample from data.loader.
+        sample:  Normalised sample from data.loader.
         client:  boto3 bedrock-runtime client.
 
     Returns:
-        Tuple of (model_response_text, tool_calls_made).
+        Tuple of (model_response_text, tool_calls_made, usage_dict).
     """
-    # ── 1. Ingest history into bead store ─────────────────────────────────────
+    # ── 1. Ingest sessions into bead store ─────────────────────────────────────
     store = BeadStore()
-    store.ingest(sample["history"])
+    store.ingest(sample["sessions"])
 
-    # ── 2. Build session-start context (mirrors 1-context-start.js) ───────────
+    # ── 2. Build session-start context ────────────────────────────────────────
     session_context = store.build_session_context()
     system_prompt = _SYSTEM_TEMPLATE.format(session_context=session_context)
 
-    # ── 3. Start with just the retrieval query ────────────────────────────────
+    # ── 3. Start with the question ────────────────────────────────────────────
     messages = [
-        {"role": "user", "content": [{"text": sample["query"]}]}
+        {"role": "user", "content": [{"text": sample["question"]}]}
     ]
 
     tool_calls_made = 0
+    total_usage = {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}
 
-    # ── 4. Agentic loop: answer or search ─────────────────────────────────────
+    # ── 4. Agentic loop ───────────────────────────────────────────────────────
     for _ in range(_MAX_TOOL_ROUNDS + 1):
         response = client.converse(
             modelId=MODEL_ID,
@@ -138,18 +128,20 @@ def run_contextweave(
 
         output_msg = response["output"]["message"]
         stop_reason = response.get("stopReason", "")
+        for k in total_usage:
+            total_usage[k] += response.get("usage", {}).get(k, 0)
 
-        # Append model's response to messages for context continuity
+        if not output_msg.get("content"):
+            break
+
         messages.append(output_msg)
 
-        # ── Final text answer ──────────────────────────────────────────────────
         if stop_reason == "end_turn":
             for block in output_msg.get("content", []):
                 if "text" in block:
-                    return block["text"], tool_calls_made
-            return "", tool_calls_made
+                    return block["text"], tool_calls_made, total_usage
+            return "", tool_calls_made, total_usage
 
-        # ── Tool use requested ─────────────────────────────────────────────────
         if stop_reason == "tool_use":
             tool_results = []
 
@@ -166,8 +158,7 @@ def run_contextweave(
                     command = tool_input.get("command", "")
                     query = _extract_search_query(command)
                     if query is not None:
-                        # Delegate to Python BeadStore (simulates bin/search-beads)
-                        beads = store.search(query, top_k=1)
+                        beads = store.search(query, top_k=CONTEXTWEAVE_TOP_K)
                         result_text = store.format_search_result(beads)
                         tool_calls_made += 1
                     else:
@@ -180,7 +171,9 @@ def run_contextweave(
                     "content": [{"text": result_text}],
                 })
 
-            # Inject tool results and continue the loop
+            if not tool_results:
+                break
+
             messages.append({
                 "role": "user",
                 "content": [{"toolResult": r} for r in tool_results],
@@ -191,6 +184,6 @@ def run_contextweave(
         if msg.get("role") == "assistant":
             for block in msg.get("content", []):
                 if "text" in block:
-                    return block["text"], tool_calls_made
+                    return block["text"], tool_calls_made, total_usage
 
-    return "", tool_calls_made
+    return "", tool_calls_made, total_usage

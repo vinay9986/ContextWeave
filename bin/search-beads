@@ -13,22 +13,27 @@
  *   search-beads "how to configure webpack"
  *
  * Works as a native Bash tool for both Claude Code and Gemini CLI —
- * no MCP or extra configuration needed beyond `npm link` (or PATH export).
+ * no MCP or extra configuration needed beyond `npm link` + `node setup-onnx.js`.
  *
  * How it works:
  *   1. Loads all prompt beads from the .beads store (via `bd list`).
  *   2. Resolves each prompt's final-response child.
- *   3. Stage 1: ordinal lookup — parses "Nth <format> about <entity>" from the
- *      query and returns the Nth matching bead directly.
- *   4. Stage 2: keyword fallback — scores all beads by token overlap and
- *      returns the best match.
+ *   3. Stage 1a: exact ordinal lookup — (format, entity) key match.
+ *   3. Stage 1b: format-only ordinal lookup.
+ *   3. Stage 1c: semantic ordinal — embeds the format+entity description,
+ *      finds the most similar prompts, applies ordinal within that group.
+ *   4. Stage 2: full semantic search — cosine similarity over all bead content.
  *   5. Prints the matched bead content (prompt snippet + assistant response).
  */
 
 const { execFileSync } = require('child_process');
 const path = require('path');
+const os = require('os');
 
 // ── Constants ──────────────────────────────────────────────────────────────────
+
+const MODEL = 'Xenova/all-MiniLM-L6-v2';
+const CACHE_DIR = path.join(os.homedir(), '.cache', 'contextweave-onnx');
 
 const FORMATS = [
   'short news article', 'short scene in a play', 'short essay',
@@ -39,20 +44,34 @@ const FORMATS = [
   'essay', 'letter', 'email', 'riddle', 'joke', 'story',
 ];
 
-// Sort longest-first so that "short news article" matches before "article".
 const FORMAT_PATTERN = new RegExp(
   '\\b(' + FORMATS.slice().sort((a, b) => b.length - a.length).map(escapeRegex).join('|') + ')\\b',
   'i'
 );
 
-// "the Nth (1 indexed) <format> about <entity>"
 const ORDINAL_PATTERN = /(?:prepend\s+\S+\s+to\s+the\s+)?(\d+)(?:st|nd|rd|th)\s+\(1\s+indexed\)\s+(.+?)\s+about\s+(.+?)(?:\.|$)/i;
-
-// "write a <format> about <entity>"
 const USER_PATTERN = /write\s+(?:a\s+|an\s+)?(?:short\s+)?(.+?)\s+about\s+(.+?)(?:\.|$)/i;
 
 function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// ── ONNX embedder ──────────────────────────────────────────────────────────────
+
+let _extractor = null;
+
+async function getExtractor() {
+  if (_extractor) return _extractor;
+  const { pipeline, env } = await import('@huggingface/transformers');
+  env.cacheDir = CACHE_DIR;
+  _extractor = await pipeline('feature-extraction', MODEL);
+  return _extractor;
+}
+
+function dotProduct(a, b) {
+  let s = 0;
+  for (let i = 0; i < a.length; i++) s += a[i] * b[i];
+  return s;
 }
 
 // ── bd helpers ─────────────────────────────────────────────────────────────────
@@ -89,7 +108,6 @@ function loadBeads(cwd) {
     bdJson(['list', '--all', '--label', 'trace', '--label', 'prompt', '--limit', '0', '--sort', 'created', '--reverse'], cwd)
   );
 
-  // Sort oldest → newest (ascending by created_at)
   prompts.sort((a, b) => {
     const aT = a.created_at ? Date.parse(a.created_at) : 0;
     const bT = b.created_at ? Date.parse(b.created_at) : 0;
@@ -100,7 +118,6 @@ function loadBeads(cwd) {
     const pNotes = parseNotes(prompt.notes);
     const promptSnippet = pNotes.snippet || prompt.title || '';
 
-    // Get children of this prompt, find the final response
     const children = asIssueList(
       bdJson(['list', '--all', '--parent', prompt.id, '--sort', 'created', '--reverse', '--limit', '0'], cwd)
     );
@@ -108,7 +125,6 @@ function loadBeads(cwd) {
     const fNotes = parseNotes(finalChild && finalChild.notes);
     const finalSnippet = fNotes.snippet || '';
 
-    // Extract entity and format from prompt snippet for ordinal indexing
     const fmt = extractFormat(promptSnippet);
     const entity = extractEntity(promptSnippet);
 
@@ -151,75 +167,91 @@ function parseOrdinalQuery(query) {
 
 // ── Search ─────────────────────────────────────────────────────────────────────
 
-/**
- * Stage 1: exact ordinal lookup.
- * Returns the Nth bead of a given (format, entity) or just format.
- */
-function ordinalSearch(beads, parsed) {
-  const { ordinal, formatType, entity } = parsed;
+async function search(beads, query) {
+  const parsed = parseOrdinalQuery(query);
 
-  // Exact (format, entity) match
-  const exactGroup = beads.filter(
-    (b) => b.formatType === formatType && b.entity.toLowerCase() === entity.toLowerCase()
-  );
-  if (exactGroup.length && ordinal >= 1 && ordinal <= exactGroup.length) {
-    return exactGroup[ordinal - 1];
+  // Stage 1a: exact (format, entity) match
+  if (parsed) {
+    const exactGroup = beads.filter(
+      (b) => b.formatType === parsed.formatType &&
+             b.entity.toLowerCase() === parsed.entity.toLowerCase()
+    );
+    if (exactGroup.length && parsed.ordinal >= 1 && parsed.ordinal <= exactGroup.length) {
+      return exactGroup[parsed.ordinal - 1];
+    }
+
+    // Stage 1b: format-only match
+    const formatGroup = beads.filter((b) => b.formatType === parsed.formatType);
+    if (formatGroup.length && parsed.ordinal >= 1 && parsed.ordinal <= formatGroup.length) {
+      return formatGroup[parsed.ordinal - 1];
+    }
   }
 
-  // Fuzzy: format only
-  const formatGroup = beads.filter((b) => b.formatType === formatType);
-  if (formatGroup.length && ordinal >= 1 && ordinal <= formatGroup.length) {
-    return formatGroup[ordinal - 1];
+  // Stages 1c and 2 both require the embedder
+  const extractor = await getExtractor();
+
+  // Stage 1c: semantic ordinal group matching
+  if (parsed) {
+    const groupQuery = `${parsed.formatType} about ${parsed.entity}`;
+    const promptTexts = beads.map((b) => b.promptSnippet);
+    const [promptEmbeds, groupEmbed] = await Promise.all([
+      extractor(promptTexts, { pooling: 'mean', normalize: true }),
+      extractor([groupQuery], { pooling: 'mean', normalize: true }),
+    ]);
+
+    const dim = groupEmbed.dims[1];
+    const qVec = Array.from(groupEmbed.data);
+    const nCandidates = Math.min(parsed.ordinal * 2 + 2, beads.length);
+
+    const scored = beads
+      .map((b, i) => ({
+        bead: b,
+        score: dotProduct(qVec, Array.from(promptEmbeds.data).slice(i * dim, (i + 1) * dim)),
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, nCandidates)
+      .sort((a, b) => beads.indexOf(a.bead) - beads.indexOf(b.bead)); // restore turn order
+
+    if (parsed.ordinal >= 1 && parsed.ordinal <= scored.length) {
+      return scored[parsed.ordinal - 1].bead;
+    }
   }
 
-  return null;
-}
+  // Stage 2: full semantic search
+  const texts = beads.map((b) => b.promptSnippet + ' ' + b.finalSnippet);
+  const [corpusEmbeds, queryEmbed] = await Promise.all([
+    extractor(texts, { pooling: 'mean', normalize: true }),
+    extractor([query], { pooling: 'mean', normalize: true }),
+  ]);
 
-/**
- * Stage 2: keyword/token overlap fallback.
- * Tokenises query and bead text, scores by overlap ratio.
- */
-function keywordSearch(beads, query) {
-  const qTokens = new Set(tokenise(query));
-  if (!qTokens.size) return null;
+  const dim = queryEmbed.dims[1];
+  const qVec = Array.from(queryEmbed.data);
 
   let best = null;
-  let bestScore = 0;
-
-  for (const bead of beads) {
-    const text = bead.promptSnippet + ' ' + bead.finalSnippet;
-    const tTokens = tokenise(text);
-    const overlap = tTokens.filter((t) => qTokens.has(t)).length;
-    const score = overlap / (qTokens.size + tTokens.length - overlap || 1);
-    if (score > bestScore) {
-      bestScore = score;
-      best = bead;
-    }
+  let bestScore = -Infinity;
+  for (let i = 0; i < beads.length; i++) {
+    const score = dotProduct(qVec, Array.from(corpusEmbeds.data).slice(i * dim, (i + 1) * dim));
+    if (score > bestScore) { bestScore = score; best = beads[i]; }
   }
 
   return best;
 }
 
-function tokenise(text) {
-  return (text || '').toLowerCase().replace(/[^\w\s]/g, ' ').split(/\s+/).filter(Boolean);
-}
-
 // ── Formatting ─────────────────────────────────────────────────────────────────
 
 function formatResult(bead) {
-  const lines = [
+  return [
     `[bead-${String(bead.turn).padStart(4, '0')}] Turn #${bead.turn}`,
     '',
     `User: ${bead.promptSnippet}`,
     '',
     `Assistant: ${bead.finalSnippet || '(no response recorded)'}`,
-  ];
-  return lines.join('\n');
+  ].join('\n');
 }
 
 // ── Main ───────────────────────────────────────────────────────────────────────
 
-function main() {
+async function main() {
   const query = process.argv.slice(2).join(' ').trim();
 
   if (!query) {
@@ -229,7 +261,6 @@ function main() {
 
   const cwd = process.env.SEARCH_BEADS_CWD || process.cwd();
 
-  // Check .beads directory exists
   const fs = require('fs');
   const beadsDir = path.join(cwd, '.beads');
   if (!fs.existsSync(beadsDir)) {
@@ -244,14 +275,7 @@ function main() {
     process.exit(0);
   }
 
-  // Stage 1: ordinal
-  const parsed = parseOrdinalQuery(query);
-  let result = parsed ? ordinalSearch(beads, parsed) : null;
-
-  // Stage 2: keyword fallback
-  if (!result) {
-    result = keywordSearch(beads, query);
-  }
+  const result = await search(beads, query);
 
   if (!result) {
     process.stdout.write('No matching beads found.\n');
@@ -261,4 +285,7 @@ function main() {
   process.stdout.write(formatResult(result) + '\n');
 }
 
-main();
+main().catch(err => {
+  process.stderr.write(`search-beads error: ${err.message}\n`);
+  process.exit(1);
+});

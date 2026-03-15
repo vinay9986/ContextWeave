@@ -112,11 +112,24 @@ When a new prompt arrives, `trace-utils.js` checks whether the previous prompt e
 
 This keeps context injection compatible with provider-specific hook requirements without duplicating trace logic.
 
+## Semantic Retrieval
+
+At session start, the model receives a truncated CONVERSATION HISTORY summary of all stored beads and an instruction to call `search-beads "<query>"` via its native Bash/shell tool when the summary is insufficient.
+
+`search-beads` uses four-stage retrieval backed by a local ONNX embedding model (`all-MiniLM-L6-v2`, cached at `~/.cache/contextweave-onnx`):
+
+1. **Exact key** — matches on (format, entity) pair for ordinal queries
+2. **Format-only ordinal** — matches on format when entity key misses
+3. **Semantic group** — embeds the format+entity description, finds the most similar prompt embeddings, applies ordinal within that semantic group
+4. **Full semantic search** — cosine similarity over the full prompt+response text of all beads
+
+No external service, no separate database process. The ONNX runtime runs in-process inside the Node script.
+
 ## What ContextWeave Is Not
 
 - Not a standalone memory server
-- Not a vector database
+- Not an external vector database service
 - Not a JSONL event bus
 - Not a replacement for Beads itself
 
-It is a deterministic bridge between provider hook events and a Beads-backed memory workflow.
+It is a deterministic bridge between provider hook events and a Beads-backed memory workflow, with a local ONNX embedding layer for retrieval.

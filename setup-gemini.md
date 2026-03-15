@@ -1,63 +1,16 @@
 # ContextWeave Setup for Gemini CLI
 
-This guide wires Gemini CLI hook events to the scripts in this repository.
+Run the installer from the repo root first (see [setup.md](setup.md)):
 
-> Replace `/absolute/path/to/ContextWeave` with the absolute path to this repo.
+```bash
+node install.js
+```
 
-## Repo-Root Scripts Used by Gemini
+The installer prints the exact JSON block to paste into `~/.gemini/settings.json`. Copy it in — no path editing required; the installer substitutes your actual home directory.
 
-- `1-context-start.js`
-- `2-context-before-agent.js`
-- `3-context-precompress.js`
-- `5-context-end.js`
-- `6-context-after-agent.js`
-- `7-context-after-tool.js`
-- `8-context-after-model.js`
-- `payload.js`
-- `output.js`
-- `trace-utils.js`
-- `mappers/gemini.js`
+## Hook Bindings
 
-`4-context-postcompress.js` is present in the repo as an optional helper, but it is not required by the default Gemini hook config below.
-
-## Hook Behavior
-
-### SessionStart
-
-Injects:
-
-- `bd prime --full`
-- all prompt/final summaries
-- open non-trace issues
-
-### BeforeAgent
-
-- logs the new prompt
-- injects the post-compaction rehydration pack when `.beads/.needs_rehydrate` exists
-- otherwise injects a strict reminder to persist durable work into Beads
-
-### AfterAgent
-
-- logs the final answer
-
-### AfterTool
-
-- logs tool call and tool result snippets
-
-### AfterModel
-
-- logs up to three intermediate output chunks per prompt
-
-### PreCompress
-
-- reminds the agent to update Beads before compaction
-- writes `.beads/.needs_rehydrate` so the next prompt rehydrates context
-
-### SessionEnd
-
-- returns an empty JSON object
-
-## `settings.json` Example
+The printed block wires these events:
 
 ```json
 {
@@ -69,7 +22,7 @@ Injects:
           {
             "name": "contextweave-start",
             "type": "command",
-            "command": "HOOK_PROVIDER=gemini node /absolute/path/to/ContextWeave/1-context-start.js"
+            "command": "HOOK_PROVIDER=gemini node ~/.contextweave/1-context-start.js"
           }
         ]
       }
@@ -81,7 +34,7 @@ Injects:
           {
             "name": "contextweave-before-agent",
             "type": "command",
-            "command": "HOOK_PROVIDER=gemini node /absolute/path/to/ContextWeave/2-context-before-agent.js"
+            "command": "HOOK_PROVIDER=gemini node ~/.contextweave/2-context-before-agent.js"
           }
         ]
       }
@@ -93,7 +46,7 @@ Injects:
           {
             "name": "contextweave-after-agent",
             "type": "command",
-            "command": "HOOK_PROVIDER=gemini node /absolute/path/to/ContextWeave/6-context-after-agent.js"
+            "command": "HOOK_PROVIDER=gemini node ~/.contextweave/6-context-after-agent.js"
           }
         ]
       }
@@ -105,7 +58,7 @@ Injects:
           {
             "name": "contextweave-after-tool",
             "type": "command",
-            "command": "HOOK_PROVIDER=gemini node /absolute/path/to/ContextWeave/7-context-after-tool.js"
+            "command": "HOOK_PROVIDER=gemini node ~/.contextweave/7-context-after-tool.js"
           }
         ]
       }
@@ -117,7 +70,7 @@ Injects:
           {
             "name": "contextweave-after-model",
             "type": "command",
-            "command": "HOOK_PROVIDER=gemini node /absolute/path/to/ContextWeave/8-context-after-model.js"
+            "command": "HOOK_PROVIDER=gemini node ~/.contextweave/8-context-after-model.js"
           }
         ]
       }
@@ -129,7 +82,7 @@ Injects:
           {
             "name": "contextweave-precompress",
             "type": "command",
-            "command": "HOOK_PROVIDER=gemini node /absolute/path/to/ContextWeave/3-context-precompress.js"
+            "command": "HOOK_PROVIDER=gemini node ~/.contextweave/3-context-precompress.js"
           }
         ]
       }
@@ -141,7 +94,7 @@ Injects:
           {
             "name": "contextweave-end",
             "type": "command",
-            "command": "HOOK_PROVIDER=gemini node /absolute/path/to/ContextWeave/5-context-end.js"
+            "command": "HOOK_PROVIDER=gemini node ~/.contextweave/5-context-end.js"
           }
         ]
       }
@@ -150,25 +103,45 @@ Injects:
 }
 ```
 
-## Enabling the `search-beads` tool
+## Hook Behavior
 
-The `search-beads` command lets Gemini search conversation history using natural language.
-It works via Gemini's native shell tool — no MCP required.
+### SessionStart
+Injects `bd prime --full`, all prompt/final summaries, and open non-trace issues.
 
-```bash
-# From the ContextWeave repo directory:
-npm link
-```
+### BeforeAgent
+- Logs the new prompt
+- Injects the post-compaction rehydration pack when `.beads/.needs_rehydrate` exists
+- Otherwise injects a strict reminder to persist durable work into Beads
 
-That's it. Gemini can now call `search-beads "<query>"` via its shell tool whenever
-the truncated session summary isn't enough to answer a question.
+### AfterAgent
+Logs the final answer.
+
+### AfterTool
+Logs tool call and tool result snippets.
+
+### AfterModel
+Logs up to three intermediate output chunks per prompt.
+
+### PreCompress
+- Reminds the agent to update Beads before compaction
+- Writes `.beads/.needs_rehydrate` so the next prompt rehydrates context
+
+### SessionEnd
+Returns an empty JSON object.
+
+## The `search-beads` tool
+
+`search-beads` is linked onto your PATH by the installer. Gemini can call it via its
+native shell tool — no MCP required. It uses four-stage ONNX semantic retrieval
+(`all-MiniLM-L6-v2`) to find the most relevant past exchange when the session
+summary is not enough to answer a question.
 
 ## Notes
 
 - Prompts remain open until a final response is logged.
 - If Gemini emits a cancellation and a new prompt arrives, the prior prompt can be marked `interrupted`.
 - Tool outputs are truncated snippets, not a full replay log.
-- Provider mapping lives in [mappers/gemini.js](mappers/gemini.js).
+- Provider mapping lives in `~/.contextweave/mappers/gemini.js`.
 - `bd pin` and `bd decision` are not standard Beads commands. Use labels instead:
   - `bd update <id> --add-label pinned`
   - `bd update <id> --add-label decision`

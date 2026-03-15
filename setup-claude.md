@@ -1,18 +1,16 @@
 # ContextWeave Setup for Claude Code
 
-This guide wires Claude Code hook events to the scripts in this repository.
+Run the installer from the repo root first (see [setup.md](setup.md)):
 
-> Replace `/absolute/path/to/ContextWeave` with the absolute path to this repo.
+```bash
+node install.js
+```
 
-## What Claude Captures
-
-- Prompt: `UserPromptSubmit`
-- Tool call: `PreToolUse`
-- Tool result: `PostToolUse` and `PostToolUseFailure`
-- Final response: `Stop`
-- Intermediate output: not available from Claude in this setup
+The installer prints the exact JSON block to paste into `~/.claude/settings.json`. Copy it in — no path editing required; the installer substitutes your actual home directory.
 
 ## Hook Bindings
+
+The printed block wires these events:
 
 ```json
 {
@@ -24,7 +22,7 @@ This guide wires Claude Code hook events to the scripts in this repository.
           {
             "name": "contextweave-start",
             "type": "command",
-            "command": "node /absolute/path/to/ContextWeave/1-context-start.js"
+            "command": "node ~/.contextweave/1-context-start.js"
           }
         ]
       }
@@ -36,7 +34,7 @@ This guide wires Claude Code hook events to the scripts in this repository.
           {
             "name": "contextweave-before-agent",
             "type": "command",
-            "command": "node /absolute/path/to/ContextWeave/2-context-before-agent.js"
+            "command": "node ~/.contextweave/2-context-before-agent.js"
           }
         ]
       }
@@ -48,7 +46,7 @@ This guide wires Claude Code hook events to the scripts in this repository.
           {
             "name": "contextweave-tool",
             "type": "command",
-            "command": "node /absolute/path/to/ContextWeave/7-context-after-tool.js"
+            "command": "node ~/.contextweave/7-context-after-tool.js"
           }
         ]
       }
@@ -60,7 +58,7 @@ This guide wires Claude Code hook events to the scripts in this repository.
           {
             "name": "contextweave-tool",
             "type": "command",
-            "command": "node /absolute/path/to/ContextWeave/7-context-after-tool.js"
+            "command": "node ~/.contextweave/7-context-after-tool.js"
           }
         ]
       }
@@ -72,7 +70,7 @@ This guide wires Claude Code hook events to the scripts in this repository.
           {
             "name": "contextweave-tool",
             "type": "command",
-            "command": "node /absolute/path/to/ContextWeave/7-context-after-tool.js"
+            "command": "node ~/.contextweave/7-context-after-tool.js"
           }
         ]
       }
@@ -84,7 +82,7 @@ This guide wires Claude Code hook events to the scripts in this repository.
           {
             "name": "contextweave-precompress",
             "type": "command",
-            "command": "node /absolute/path/to/ContextWeave/3-context-precompress.js"
+            "command": "node ~/.contextweave/3-context-precompress.js"
           }
         ]
       }
@@ -96,7 +94,7 @@ This guide wires Claude Code hook events to the scripts in this repository.
           {
             "name": "contextweave-after-agent",
             "type": "command",
-            "command": "node /absolute/path/to/ContextWeave/6-context-after-agent.js"
+            "command": "node ~/.contextweave/6-context-after-agent.js"
           }
         ]
       }
@@ -108,7 +106,7 @@ This guide wires Claude Code hook events to the scripts in this repository.
           {
             "name": "contextweave-end",
             "type": "command",
-            "command": "node /absolute/path/to/ContextWeave/5-context-end.js"
+            "command": "node ~/.contextweave/5-context-end.js"
           }
         ]
       }
@@ -117,36 +115,39 @@ This guide wires Claude Code hook events to the scripts in this repository.
 }
 ```
 
-## Enabling the `search-beads` tool
+## What Claude Captures
 
-The `search-beads` command lets Claude search conversation history using natural language.
-It works via Claude's native Bash tool — no MCP required.
+- Prompt: `UserPromptSubmit`
+- Tool call: `PreToolUse`
+- Tool result: `PostToolUse` and `PostToolUseFailure`
+- Final response: `Stop`
+- Intermediate output: not available from Claude in this setup
 
-```bash
-# From the ContextWeave repo directory:
-npm link
+## The `search-beads` tool
+
+`search-beads` is linked onto your PATH by the installer. Claude can call it via its
+native Bash tool — no MCP required. It uses four-stage ONNX semantic retrieval
+(`all-MiniLM-L6-v2`) to find the most relevant past exchange when the session
+summary is not enough to answer a question.
+
+## Optional JSON Output for `UserPromptSubmit`
+
+Claude defaults to plain-text-safe output for `UserPromptSubmit`. If you need JSON
+output there, set `CLAUDE_HOOK_MODE=json` on that command:
+
+```json
+{
+  "name": "contextweave-before-agent",
+  "type": "command",
+  "command": "CLAUDE_HOOK_MODE=json node ~/.contextweave/2-context-before-agent.js"
+}
 ```
-
-That's it. Claude can now call `search-beads "<query>"` via its Bash tool whenever
-the truncated session summary isn't enough to answer a question.
 
 ## Notes
 
 - Prompt, tool, and final records are stored as parent/child Beads issues under the current prompt.
 - If a new prompt starts before the previous one is finalized, the earlier prompt is labeled `interrupted`.
 - Tool outputs are truncated snippets, not full payload archives.
-- Provider mapping lives in [mappers/claude.js](mappers/claude.js).
+- Provider mapping lives in `~/.contextweave/mappers/claude.js`.
 - Session start injects `bd prime --full`, all prompt/final summaries, and open non-trace issues.
-- `8-context-after-model.js` exists in the repo but has no Claude binding — Claude Code does not expose a streaming intermediate-chunk event. It is used by Gemini CLI (`AfterModel`) only.
-
-## Optional JSON Output for `UserPromptSubmit`
-
-Claude defaults to plain-text-safe output for `UserPromptSubmit`. If you need JSON output there, set `CLAUDE_HOOK_MODE=json` on that command:
-
-```json
-{
-  "name": "contextweave-before-agent",
-  "type": "command",
-  "command": "CLAUDE_HOOK_MODE=json node /absolute/path/to/ContextWeave/2-context-before-agent.js"
-}
-```
+- `8-context-after-model.js` is present but has no Claude binding — Claude Code does not expose a streaming intermediate-chunk event. It is used by Gemini CLI (`AfterModel`) only.

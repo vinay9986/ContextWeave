@@ -74,6 +74,8 @@ The current hard-coded limits in [../trace-utils.js](../trace-utils.js) are:
 | [../payload.js](../payload.js) | Provider detection and payload normalization |
 | [../output.js](../output.js) | Provider-specific context-injection output |
 | [../trace-utils.js](../trace-utils.js) | Shared Beads and trace logic |
+| [../bin/search-beads](../bin/search-beads) | Semantic search CLI — four-stage ONNX retrieval over bead store |
+| [../setup-onnx.js](../setup-onnx.js) | One-time download of the `all-MiniLM-L6-v2` ONNX embedding model |
 
 ## Inspecting a Prompt Tree
 
