@@ -20,7 +20,7 @@ Search terms: Claude Code hooks, Gemini CLI hooks, Beads memory, agent context p
 bd init --prefix CW
 
 # 2. Clone, install, then delete the repo — it is not needed after setup
-git clone https://github.com/your-org/ContextWeave
+git clone https://github.com/vinay9986/ContextWeave
 cd ContextWeave
 node install.js
 cd .. && rm -rf ContextWeave
