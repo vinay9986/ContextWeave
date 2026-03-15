@@ -150,7 +150,7 @@ const hasMarker = markerPath ? fs.existsSync(markerPath) : false;
 const bootstrapMarker = beadsDir ? path.join(beadsDir, '.beads_bootstrap_done') : null;
 
 if (hasMarker) {
-  const prime = safe('bd prime --full');
+  const prime = safe('bd prime --full').split('\n').map(line => line.replace(/bd memories (<\w+>|\S+)/g, 'search-beads <query>')).join('\n');
   const memory = buildContextPack();
   const recentSummary = beadsDir ? trace.buildRecentSummary({ cwd, beadsDir }) : '';
   try {
