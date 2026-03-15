@@ -1,0 +1,264 @@
+#!/usr/bin/env node
+'use strict';
+
+/**
+ * search-beads — semantic search over the ContextWeave bead store.
+ *
+ * Usage:
+ *   search-beads "<natural language query>"
+ *
+ * Examples:
+ *   search-beads "2nd email about dogs"
+ *   search-beads "poem about the ocean"
+ *   search-beads "how to configure webpack"
+ *
+ * Works as a native Bash tool for both Claude Code and Gemini CLI —
+ * no MCP or extra configuration needed beyond `npm link` (or PATH export).
+ *
+ * How it works:
+ *   1. Loads all prompt beads from the .beads store (via `bd list`).
+ *   2. Resolves each prompt's final-response child.
+ *   3. Stage 1: ordinal lookup — parses "Nth <format> about <entity>" from the
+ *      query and returns the Nth matching bead directly.
+ *   4. Stage 2: keyword fallback — scores all beads by token overlap and
+ *      returns the best match.
+ *   5. Prints the matched bead content (prompt snippet + assistant response).
+ */
+
+const { execFileSync } = require('child_process');
+const path = require('path');
+
+// ── Constants ──────────────────────────────────────────────────────────────────
+
+const FORMATS = [
+  'short news article', 'short scene in a play', 'short essay',
+  'social media post', 'formal letter', 'diary entry',
+  'blog post', 'short story', 'cover letter', 'product description',
+  'press release', 'marketing email', 'news article',
+  'speech', 'poem', 'haiku', 'sonnet', 'limerick', 'song', 'rap',
+  'essay', 'letter', 'email', 'riddle', 'joke', 'story',
+];
+
+// Sort longest-first so that "short news article" matches before "article".
+const FORMAT_PATTERN = new RegExp(
+  '\\b(' + FORMATS.slice().sort((a, b) => b.length - a.length).map(escapeRegex).join('|') + ')\\b',
+  'i'
+);
+
+// "the Nth (1 indexed) <format> about <entity>"
+const ORDINAL_PATTERN = /(?:prepend\s+\S+\s+to\s+the\s+)?(\d+)(?:st|nd|rd|th)\s+\(1\s+indexed\)\s+(.+?)\s+about\s+(.+?)(?:\.|$)/i;
+
+// "write a <format> about <entity>"
+const USER_PATTERN = /write\s+(?:a\s+|an\s+)?(?:short\s+)?(.+?)\s+about\s+(.+?)(?:\.|$)/i;
+
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// ── bd helpers ─────────────────────────────────────────────────────────────────
+
+function runBd(args, cwd) {
+  try {
+    return execFileSync('bd', [...args, '--json', '--quiet'], { cwd, encoding: 'utf8' }).trim();
+  } catch (_) {
+    return '';
+  }
+}
+
+function bdJson(args, cwd) {
+  const out = runBd(args, cwd);
+  if (!out) return null;
+  try { return JSON.parse(out); } catch (_) { return null; }
+}
+
+function asIssueList(data) {
+  if (Array.isArray(data)) return data.filter(Boolean);
+  if (data && Array.isArray(data.issues)) return data.issues.filter(Boolean);
+  return [];
+}
+
+function parseNotes(notes) {
+  if (!notes) return {};
+  try { return JSON.parse(notes); } catch (_) { return {}; }
+}
+
+// ── Bead loading ───────────────────────────────────────────────────────────────
+
+function loadBeads(cwd) {
+  const prompts = asIssueList(
+    bdJson(['list', '--all', '--label', 'trace', '--label', 'prompt', '--limit', '0', '--sort', 'created', '--reverse'], cwd)
+  );
+
+  // Sort oldest → newest (ascending by created_at)
+  prompts.sort((a, b) => {
+    const aT = a.created_at ? Date.parse(a.created_at) : 0;
+    const bT = b.created_at ? Date.parse(b.created_at) : 0;
+    return aT - bT;
+  });
+
+  return prompts.map((prompt, idx) => {
+    const pNotes = parseNotes(prompt.notes);
+    const promptSnippet = pNotes.snippet || prompt.title || '';
+
+    // Get children of this prompt, find the final response
+    const children = asIssueList(
+      bdJson(['list', '--all', '--parent', prompt.id, '--sort', 'created', '--reverse', '--limit', '0'], cwd)
+    );
+    const finalChild = children.find((c) => (c.labels || []).includes('final'));
+    const fNotes = parseNotes(finalChild && finalChild.notes);
+    const finalSnippet = fNotes.snippet || '';
+
+    // Extract entity and format from prompt snippet for ordinal indexing
+    const fmt = extractFormat(promptSnippet);
+    const entity = extractEntity(promptSnippet);
+
+    return {
+      id: prompt.id,
+      turn: idx + 1,
+      promptSnippet,
+      finalSnippet,
+      entity,
+      formatType: fmt,
+    };
+  });
+}
+
+// ── Metadata extraction ────────────────────────────────────────────────────────
+
+function extractFormat(text) {
+  const m = FORMAT_PATTERN.exec(text);
+  return m ? m[1].toLowerCase() : '';
+}
+
+function extractEntity(text) {
+  const m = USER_PATTERN.exec(text);
+  if (m) return m[2].trim().replace(/[?.!]+$/, '');
+  const m2 = /\babout\s+(.+?)(?:\.|$)/i.exec(text);
+  return m2 ? m2[1].trim().replace(/[?.!]+$/, '') : '';
+}
+
+// ── Query parsing ──────────────────────────────────────────────────────────────
+
+function parseOrdinalQuery(query) {
+  const m = ORDINAL_PATTERN.exec(query);
+  if (!m) return null;
+  return {
+    ordinal: parseInt(m[1], 10),
+    formatType: m[2].trim().toLowerCase(),
+    entity: m[3].trim().replace(/[?.!]+$/, ''),
+  };
+}
+
+// ── Search ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Stage 1: exact ordinal lookup.
+ * Returns the Nth bead of a given (format, entity) or just format.
+ */
+function ordinalSearch(beads, parsed) {
+  const { ordinal, formatType, entity } = parsed;
+
+  // Exact (format, entity) match
+  const exactGroup = beads.filter(
+    (b) => b.formatType === formatType && b.entity.toLowerCase() === entity.toLowerCase()
+  );
+  if (exactGroup.length && ordinal >= 1 && ordinal <= exactGroup.length) {
+    return exactGroup[ordinal - 1];
+  }
+
+  // Fuzzy: format only
+  const formatGroup = beads.filter((b) => b.formatType === formatType);
+  if (formatGroup.length && ordinal >= 1 && ordinal <= formatGroup.length) {
+    return formatGroup[ordinal - 1];
+  }
+
+  return null;
+}
+
+/**
+ * Stage 2: keyword/token overlap fallback.
+ * Tokenises query and bead text, scores by overlap ratio.
+ */
+function keywordSearch(beads, query) {
+  const qTokens = new Set(tokenise(query));
+  if (!qTokens.size) return null;
+
+  let best = null;
+  let bestScore = 0;
+
+  for (const bead of beads) {
+    const text = bead.promptSnippet + ' ' + bead.finalSnippet;
+    const tTokens = tokenise(text);
+    const overlap = tTokens.filter((t) => qTokens.has(t)).length;
+    const score = overlap / (qTokens.size + tTokens.length - overlap || 1);
+    if (score > bestScore) {
+      bestScore = score;
+      best = bead;
+    }
+  }
+
+  return best;
+}
+
+function tokenise(text) {
+  return (text || '').toLowerCase().replace(/[^\w\s]/g, ' ').split(/\s+/).filter(Boolean);
+}
+
+// ── Formatting ─────────────────────────────────────────────────────────────────
+
+function formatResult(bead) {
+  const lines = [
+    `[bead-${String(bead.turn).padStart(4, '0')}] Turn #${bead.turn}`,
+    '',
+    `User: ${bead.promptSnippet}`,
+    '',
+    `Assistant: ${bead.finalSnippet || '(no response recorded)'}`,
+  ];
+  return lines.join('\n');
+}
+
+// ── Main ───────────────────────────────────────────────────────────────────────
+
+function main() {
+  const query = process.argv.slice(2).join(' ').trim();
+
+  if (!query) {
+    process.stderr.write('Usage: search-beads "<query>"\n');
+    process.exit(1);
+  }
+
+  const cwd = process.env.SEARCH_BEADS_CWD || process.cwd();
+
+  // Check .beads directory exists
+  const fs = require('fs');
+  const beadsDir = path.join(cwd, '.beads');
+  if (!fs.existsSync(beadsDir)) {
+    process.stderr.write(`No .beads directory found at ${cwd}\n`);
+    process.stderr.write('Run `bd init` to initialise the bead store.\n');
+    process.exit(1);
+  }
+
+  const beads = loadBeads(cwd);
+  if (!beads.length) {
+    process.stdout.write('No beads found in the store.\n');
+    process.exit(0);
+  }
+
+  // Stage 1: ordinal
+  const parsed = parseOrdinalQuery(query);
+  let result = parsed ? ordinalSearch(beads, parsed) : null;
+
+  // Stage 2: keyword fallback
+  if (!result) {
+    result = keywordSearch(beads, query);
+  }
+
+  if (!result) {
+    process.stdout.write('No matching beads found.\n');
+    process.exit(0);
+  }
+
+  process.stdout.write(formatResult(result) + '\n');
+}
+
+main();

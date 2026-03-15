@@ -1,1 +1,6 @@
 node_modules/
+__pycache__/
+*.pyc
+results/
+benchmarks/mrcr-ab/results/raw_scores.json
+benchmarks/mrcr-ab/results/mrcr_ab_results.png

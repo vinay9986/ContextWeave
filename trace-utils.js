@@ -431,9 +431,10 @@ function buildPromptFinalSummary({ cwd }) {
   });
 
   const lines = [
-    '# HOW TO INSPECT A PROMPT TREE',
-    '- `bd show <prompt_id>` (prompt + children)',
-    '- `bd list --all --parent <prompt_id> --sort created --reverse --limit 0` (full children list)',
+    '# HOW TO SEARCH CONVERSATION HISTORY',
+    '- `search-beads "<query>"` — find the most relevant past exchange (Bash tool)',
+    '- `bd show <prompt_id>` — inspect a specific prompt tree (prompt + children)',
+    '- `bd list --all --parent <prompt_id> --sort created --reverse --limit 0` — full children list',
     '',
     '# CONVERSATION HISTORY (USER → ASSISTANT, FINAL ONLY)',
   ];

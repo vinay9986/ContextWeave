@@ -46,7 +46,7 @@ This guide wires Claude Code hook events to the scripts in this repository.
         "matcher": "*",
         "hooks": [
           {
-            "name": "contextweave-after-tool",
+            "name": "contextweave-tool",
             "type": "command",
             "command": "node /absolute/path/to/ContextWeave/7-context-after-tool.js"
           }
@@ -58,7 +58,7 @@ This guide wires Claude Code hook events to the scripts in this repository.
         "matcher": "*",
         "hooks": [
           {
-            "name": "contextweave-after-tool",
+            "name": "contextweave-tool",
             "type": "command",
             "command": "node /absolute/path/to/ContextWeave/7-context-after-tool.js"
           }
@@ -70,7 +70,7 @@ This guide wires Claude Code hook events to the scripts in this repository.
         "matcher": "*",
         "hooks": [
           {
-            "name": "contextweave-after-tool",
+            "name": "contextweave-tool",
             "type": "command",
             "command": "node /absolute/path/to/ContextWeave/7-context-after-tool.js"
           }
@@ -117,6 +117,19 @@ This guide wires Claude Code hook events to the scripts in this repository.
 }
 ```
 
+## Enabling the `search-beads` tool
+
+The `search-beads` command lets Claude search conversation history using natural language.
+It works via Claude's native Bash tool — no MCP required.
+
+```bash
+# From the ContextWeave repo directory:
+npm link
+```
+
+That's it. Claude can now call `search-beads "<query>"` via its Bash tool whenever
+the truncated session summary isn't enough to answer a question.
+
 ## Notes
 
 - Prompt, tool, and final records are stored as parent/child Beads issues under the current prompt.
@@ -124,6 +137,7 @@ This guide wires Claude Code hook events to the scripts in this repository.
 - Tool outputs are truncated snippets, not full payload archives.
 - Provider mapping lives in [mappers/claude.js](mappers/claude.js).
 - Session start injects `bd prime --full`, all prompt/final summaries, and open non-trace issues.
+- `8-context-after-model.js` exists in the repo but has no Claude binding — Claude Code does not expose a streaming intermediate-chunk event. It is used by Gemini CLI (`AfterModel`) only.
 
 ## Optional JSON Output for `UserPromptSubmit`
 

@@ -150,12 +150,25 @@ Injects:
 }
 ```
 
+## Enabling the `search-beads` tool
+
+The `search-beads` command lets Gemini search conversation history using natural language.
+It works via Gemini's native shell tool — no MCP required.
+
+```bash
+# From the ContextWeave repo directory:
+npm link
+```
+
+That's it. Gemini can now call `search-beads "<query>"` via its shell tool whenever
+the truncated session summary isn't enough to answer a question.
+
 ## Notes
 
 - Prompts remain open until a final response is logged.
 - If Gemini emits a cancellation and a new prompt arrives, the prior prompt can be marked `interrupted`.
 - Tool outputs are truncated snippets, not a full replay log.
 - Provider mapping lives in [mappers/gemini.js](mappers/gemini.js).
-- Beads v0.49.1 does not have `bd pin` or `bd decision`. Use labels instead:
+- `bd pin` and `bd decision` are not standard Beads commands. Use labels instead:
   - `bd update <id> --add-label pinned`
   - `bd update <id> --add-label decision`
