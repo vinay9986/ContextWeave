@@ -417,9 +417,9 @@ function buildRecentSummary({ cwd, beadsDir }) {
   return lines.join('\n');
 }
 
-function buildPromptFinalSummary({ cwd }) {
+function buildPromptFinalSummary({ cwd, limit = 30 }) {
   const prompts = asIssueList(
-    runBdJson(['list', '--all', '--label', 'trace', '--label', 'prompt', '--limit', '0', '--sort', 'created', '--reverse'], cwd) || []
+    runBdJson(['list', '--all', '--label', 'trace', '--label', 'prompt', '--limit', String(limit), '--sort', 'created', '--reverse'], cwd) || []
   );
 
   if (!prompts.length) return '';
