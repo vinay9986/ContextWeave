@@ -4,10 +4,11 @@ const trace = require('./trace-utils');
 const input = payload.readAndNormalize();
 const cwd = trace.getCwd(input);
 const beadsDir = trace.getBeadsDir(cwd);
+const stateDir = beadsDir ?? (trace.isBdAvailable() ? trace.getStateDir(input.session_id) : null);
 
-if (beadsDir) {
+if (stateDir) {
   try {
-    trace.logFinal({ cwd, beadsDir, input });
+    trace.logFinal({ cwd, stateDir, input });
   } catch (err) {
     // Ignore trace logging failures.
   }

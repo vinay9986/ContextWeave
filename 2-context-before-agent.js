@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const payload = require('./payload');
 const output = require('./output');
 const trace = require('./trace-utils');
@@ -136,23 +137,24 @@ function buildContextPack() {
 const input = payload.readAndNormalize();
 const cwd = trace.getCwd(input);
 const beadsDir = trace.getBeadsDir(cwd);
+const stateDir = beadsDir ?? (trace.isBdAvailable() ? trace.getStateDir(input.session_id) : null);
 
-if (beadsDir) {
+if (stateDir) {
   try {
-    trace.logPrompt({ cwd, beadsDir, input });
+    trace.logPrompt({ cwd, stateDir, input });
   } catch (err) {
     // Ignore trace logging failures.
   }
 }
 
-const markerPath = beadsDir ? path.join(beadsDir, '.needs_rehydrate') : null;
+const markerPath = stateDir ? path.join(stateDir, '.needs_rehydrate') : null;
 const hasMarker = markerPath ? fs.existsSync(markerPath) : false;
-const bootstrapMarker = beadsDir ? path.join(beadsDir, '.beads_bootstrap_done') : null;
+const bootstrapMarker = path.join(os.homedir(), '.contextweave', '.beads_bootstrap_done');
 
 if (hasMarker) {
   const prime = safe('bd prime --full').split('\n').map(line => line.replace(/bd memories (<\w+>|\S+)/g, 'search-beads <query>')).join('\n');
   const memory = buildContextPack();
-  const recentSummary = beadsDir ? trace.buildRecentSummary({ cwd, beadsDir }) : '';
+  const recentSummary = stateDir ? trace.buildRecentSummary({ cwd }) : '';
   try {
     fs.unlinkSync(markerPath);
   } catch (err) {
@@ -181,7 +183,7 @@ if (hasMarker) {
   process.exit(0);
 }
 
-const shouldBootstrap = fs.existsSync(beadsDir) && !fs.existsSync(bootstrapMarker);
+const shouldBootstrap = stateDir !== null && !fs.existsSync(bootstrapMarker);
 
 if (shouldBootstrap) {
   const bootstrap = [
@@ -191,9 +193,10 @@ if (shouldBootstrap) {
   ].join('\n');
 
   try {
+    fs.mkdirSync(path.dirname(bootstrapMarker), { recursive: true });
     fs.writeFileSync(bootstrapMarker, 'done', 'utf8');
   } catch (err) {
-    // If we can’t write the marker, bootstrap reminder may repeat.
+    // If we can't write the marker, bootstrap reminder may repeat.
   }
 
   const response = output.emitContext({
@@ -205,16 +208,6 @@ if (shouldBootstrap) {
 
   output.writeOutput(response);
   process.exit(0);
-}
-
-let currentMtime = null;
-
-try {
-  const dbPath = path.join(beadsDir, 'beads.db');
-  const stat = fs.statSync(dbPath);
-  currentMtime = stat.mtimeMs;
-} catch (err) {
-  currentMtime = null;
 }
 
 const reminder = [

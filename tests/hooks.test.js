@@ -52,14 +52,16 @@ test('1-context-start injects prime and summaries', () => {
 
 test('2-context-before-agent handles bootstrap, rehydrate, and reminder modes', () => {
   const bootstrap = createWorkspace();
+  const bootstrapHome = path.join(bootstrap.root, 'home');
+  fs.mkdirSync(bootstrapHome, { recursive: true });
   const bootstrapResult = executeHook('2-context-before-agent.js', {
     cwd: bootstrap.cwd,
-    env: bootstrap.env,
+    env: { ...bootstrap.env, HOME: bootstrapHome },
     input: { event: 'BeforeAgent' },
   });
   assert.equal(bootstrapResult.status, 0);
   assert.match(bootstrapResult.stdout, /Bootstrap check/);
-  assert.ok(fs.existsSync(path.join(bootstrap.beadsDir, '.beads_bootstrap_done')));
+  assert.ok(fs.existsSync(path.join(bootstrapHome, '.contextweave', '.beads_bootstrap_done')));
 
   const rehydrate = createWorkspace({
     fixture: {
@@ -74,11 +76,13 @@ test('2-context-before-agent handles bootstrap, rehydrate, and reminder modes', 
       },
     },
   });
+  const rehydrateHome = path.join(rehydrate.root, 'home');
+  fs.mkdirSync(path.join(rehydrateHome, '.contextweave'), { recursive: true });
   fs.writeFileSync(path.join(rehydrate.beadsDir, '.needs_rehydrate'), 'pending', 'utf8');
-  fs.writeFileSync(path.join(rehydrate.beadsDir, '.beads_bootstrap_done'), 'done', 'utf8');
+  fs.writeFileSync(path.join(rehydrateHome, '.contextweave', '.beads_bootstrap_done'), 'done', 'utf8');
   const rehydrateResult = executeHook('2-context-before-agent.js', {
     cwd: rehydrate.cwd,
-    env: rehydrate.env,
+    env: { ...rehydrate.env, HOME: rehydrateHome },
     input: { event: 'BeforeAgent' },
   });
   assert.equal(rehydrateResult.status, 0);
@@ -87,11 +91,12 @@ test('2-context-before-agent handles bootstrap, rehydrate, and reminder modes', 
   assert.equal(fs.existsSync(path.join(rehydrate.beadsDir, '.needs_rehydrate')), false);
 
   const reminder = createWorkspace();
-  fs.writeFileSync(path.join(reminder.beadsDir, '.beads_bootstrap_done'), 'done', 'utf8');
-  fs.writeFileSync(path.join(reminder.beadsDir, 'beads.db'), 'db', 'utf8');
+  const reminderHome = path.join(reminder.root, 'home');
+  fs.mkdirSync(path.join(reminderHome, '.contextweave'), { recursive: true });
+  fs.writeFileSync(path.join(reminderHome, '.contextweave', '.beads_bootstrap_done'), 'done', 'utf8');
   const reminderResult = executeHook('2-context-before-agent.js', {
     cwd: reminder.cwd,
-    env: reminder.env,
+    env: { ...reminder.env, HOME: reminderHome },
     input: { event: 'BeforeAgent' },
   });
   assert.equal(reminderResult.status, 0);

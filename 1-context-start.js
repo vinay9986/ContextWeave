@@ -14,9 +14,9 @@ function safe(cmd) {
 const input = payload.readAndNormalize();
 
 const prime = safe('bd prime --full').split('\n').map(line => line.replace(/bd memories (<\w+>|\S+)/g, 'search-beads <query>')).join('\n');
-const beadsDir = trace.getBeadsDir(process.cwd());
-const allSummary = beadsDir ? trace.buildPromptFinalSummary({ cwd: process.cwd() }) : '';
-const openSummary = beadsDir ? trace.buildOpenIssuesSummary({ cwd: process.cwd() }) : '';
+const bdAvailable = trace.isBdAvailable();
+const allSummary = bdAvailable ? trace.buildPromptFinalSummary({ cwd: process.cwd() }) : '';
+const openSummary = bdAvailable ? trace.buildOpenIssuesSummary({ cwd: process.cwd() }) : '';
 
 const parts = [];
 if (prime) parts.push(prime);

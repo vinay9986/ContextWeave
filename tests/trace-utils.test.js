@@ -76,7 +76,7 @@ test('trace.logPrompt records interruptions and advances state', () => {
   withEnv(env, () =>
     trace.logPrompt({
       cwd,
-      beadsDir,
+      stateDir: beadsDir,
       input: {
         prompt: 'New prompt',
         timestamp: '2026-03-11T00:02:00Z',
@@ -108,7 +108,7 @@ test('trace.logTool logIntermediate and logFinal write child issues', () => {
   withEnv(env, () => {
     trace.logTool({
       cwd,
-      beadsDir,
+      stateDir: beadsDir,
       input: {
         tool: {
           name: 'internet_search',
@@ -121,7 +121,7 @@ test('trace.logTool logIntermediate and logFinal write child issues', () => {
     });
     trace.logIntermediate({
       cwd,
-      beadsDir,
+      stateDir: beadsDir,
       input: {
         chunk: 'intermediate chunk',
         timestamp: '2026-03-11T00:04:00Z',
@@ -130,7 +130,7 @@ test('trace.logTool logIntermediate and logFinal write child issues', () => {
     });
     trace.logFinal({
       cwd,
-      beadsDir,
+      stateDir: beadsDir,
       input: {
         final: 'final answer',
         timestamp: '2026-03-11T00:05:00Z',
@@ -193,8 +193,8 @@ test('trace summary builders render prompt, final, and open issues', () => {
   };
   const { cwd, beadsDir, env } = createWorkspace({ fixture });
 
-  const recent = withEnv(env, () => trace.buildRecentSummary({ cwd, beadsDir }));
-  const conversation = withEnv(env, () => trace.buildPromptFinalSummary({ cwd }));
+  const recent = withEnv(env, () => trace.buildRecentSummary({ cwd }));
+  const conversation = withEnv(env, () => trace.buildPromptFinalSummary({ cwd, limit: 0 }));
   const openIssues = withEnv(env, () => trace.buildOpenIssuesSummary({ cwd }));
 
   assert.match(recent, /RECENT PROMPTS/);

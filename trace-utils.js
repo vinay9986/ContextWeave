@@ -31,6 +31,40 @@ function getBeadsDir(cwd) {
   return fs.existsSync(dir) ? dir : null;
 }
 
+function isBdAvailable() {
+  try {
+    execFileSync('bd', ['list', '--limit', '0', '--quiet'], { encoding: 'utf8' });
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+function getStateDir(sessionId) {
+  const id = sessionId || 'default';
+  const sessionsRoot = path.join(os.homedir(), '.contextweave', 'sessions');
+  const sessionDir = path.join(sessionsRoot, id);
+  try {
+    fs.mkdirSync(sessionDir, { recursive: true });
+  } catch (_) {}
+  // Clean up session dirs older than 7 days
+  try {
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const entries = fs.readdirSync(sessionsRoot, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name === id) continue;
+      const entryPath = path.join(sessionsRoot, entry.name);
+      try {
+        const stat = fs.statSync(entryPath);
+        if (stat.mtimeMs < cutoff) {
+          fs.rmSync(entryPath, { recursive: true, force: true });
+        }
+      } catch (_) {}
+    }
+  } catch (_) {}
+  return sessionDir;
+}
+
 function safeExec(args, cwd) {
   try {
     return execFileSync('bd', args, { cwd, encoding: 'utf8' }).trim();
@@ -60,8 +94,8 @@ function truncate(text, maxChars) {
   return { text: value.slice(0, maxChars - 3) + '...', truncated: true };
 }
 
-function loadState(beadsDir) {
-  const statePath = path.join(beadsDir, '.trace_state.json');
+function loadState(stateDir) {
+  const statePath = path.join(stateDir, '.trace_state.json');
   if (!fs.existsSync(statePath)) {
     return { prompt_seq: 0, current_prompt_id: null, current_prompt_seq: 0, step_seq: 0, chunk_seq: 0 };
   }
@@ -72,8 +106,8 @@ function loadState(beadsDir) {
   }
 }
 
-function saveState(beadsDir, state) {
-  const statePath = path.join(beadsDir, '.trace_state.json');
+function saveState(stateDir, state) {
+  const statePath = path.join(stateDir, '.trace_state.json');
   try {
     fs.writeFileSync(statePath, JSON.stringify(state), 'utf8');
   } catch (err) {
@@ -230,10 +264,10 @@ function extractChunk(input) {
   return input?.chunk || '';
 }
 
-function logPrompt({ cwd, beadsDir, input }) {
+function logPrompt({ cwd, stateDir, input }) {
   const prompt = extractPrompt(input);
   if (!prompt) return;
-  const state = loadState(beadsDir);
+  const state = loadState(stateDir);
   if (state.current_prompt_id) {
     const priorId = state.current_prompt_id;
     const priorIssue = getIssue(cwd, priorId);
@@ -270,13 +304,13 @@ function logPrompt({ cwd, beadsDir, input }) {
     truncated,
   });
   updateIssue(cwd, id, { notes });
-  saveState(beadsDir, state);
+  saveState(stateDir, state);
 }
 
-function logFinal({ cwd, beadsDir, input }) {
+function logFinal({ cwd, stateDir, input }) {
   const final = extractFinal(input);
   if (!final) return;
-  const state = loadState(beadsDir);
+  const state = loadState(stateDir);
   if (!state.current_prompt_id) return;
   const { text, truncated } = truncate(final, LIMITS.response);
   const title = `Final #${state.current_prompt_seq || '?'}`;
@@ -293,11 +327,11 @@ function logFinal({ cwd, beadsDir, input }) {
   });
   updateIssue(cwd, id, { parent: state.current_prompt_id, notes, status: 'closed' });
   updateIssue(cwd, state.current_prompt_id, { status: 'closed', addLabels: ['completed'] });
-  saveState(beadsDir, state);
+  saveState(stateDir, state);
 }
 
-function logTool({ cwd, beadsDir, input }) {
-  const state = loadState(beadsDir);
+function logTool({ cwd, stateDir, input }) {
+  const state = loadState(stateDir);
   if (!state.current_prompt_id) return;
   const tool = extractTool(input);
   if (!tool || !tool.name) return;
@@ -350,11 +384,11 @@ function logTool({ cwd, beadsDir, input }) {
     }
   }
 
-  saveState(beadsDir, state);
+  saveState(stateDir, state);
 }
 
-function logIntermediate({ cwd, beadsDir, input }) {
-  const state = loadState(beadsDir);
+function logIntermediate({ cwd, stateDir, input }) {
+  const state = loadState(stateDir);
   if (!state.current_prompt_id) return;
   if ((state.chunk_seq || 0) >= LIMITS.maxChunks) return;
   const chunk = extractChunk(input);
@@ -376,10 +410,10 @@ function logIntermediate({ cwd, beadsDir, input }) {
     truncated,
   });
   updateIssue(cwd, id, { parent: state.current_prompt_id, notes, status: 'closed' });
-  saveState(beadsDir, state);
+  saveState(stateDir, state);
 }
 
-function buildRecentSummary({ cwd, beadsDir }) {
+function buildRecentSummary({ cwd }) {
   const prompts = asIssueList(
     runBdJson(
       ['list', '--all', '--label', 'trace', '--label', 'prompt', '--limit', String(LIMITS.summary), '--sort', 'created', '--reverse'],
@@ -480,6 +514,8 @@ module.exports = {
   readInput,
   getCwd,
   getBeadsDir,
+  isBdAvailable,
+  getStateDir,
   runBdJson,
   runBd,
   loadState,
