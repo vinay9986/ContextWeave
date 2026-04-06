@@ -5,7 +5,7 @@ const { execSync } = require('child_process');
 
 function safe(cmd) {
   try {
-    return execSync(cmd, { encoding: 'utf8' }).trim();
+    return execSync(cmd, { encoding: 'utf8', timeout: 12000 }).trim();
   } catch (err) {
     return '';
   }

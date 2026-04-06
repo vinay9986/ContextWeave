@@ -1,62 +1,22 @@
-function emitContext({ provider, event, additionalContext, systemMessage }) {
-  if (!additionalContext && !systemMessage) return null;
+function emitContext({ event, additionalContext, systemMessage }) {
+  const text = [systemMessage, additionalContext].filter(Boolean).join('\n\n');
+  if (!text) return null;
 
-  const isClaude = provider === 'claude';
-  const safeMode = isClaude && process.env.CLAUDE_HOOK_MODE !== 'json';
-
-  if (isClaude) {
-    if (event === 'SessionStart') {
-      const combined = [systemMessage, additionalContext].filter(Boolean).join('\n\n');
-      return { raw: combined };
-    }
-
-    if (event === 'UserPromptSubmit') {
-      if (safeMode) {
-        return { raw: additionalContext || '' };
-      }
-      return {
-        json: {
-          hookSpecificOutput: {
-            'for UserPromptSubmit': {
-              hookEventName: 'UserPromptSubmit',
-              additionalContext: additionalContext || '',
-            },
-          },
-        },
-      };
-    }
-
-    if (event === 'PostToolUse') {
-      return {
-        json: {
-          hookSpecificOutput: {
-            'for PostToolUse': {
-              hookEventName: 'PostToolUse',
-              additionalContext: additionalContext || '',
-            },
-          },
-        },
-      };
-    }
-
-    if (systemMessage || additionalContext) {
-      const combined = [systemMessage, additionalContext].filter(Boolean).join('\n\n');
-      return { json: { systemMessage: combined } };
-    }
-
-    return { json: {} };
+  // SessionStart and UserPromptSubmit inject context to Claude via plain text stdout.
+  // All other events (trace-only) should output {} to suppress noise.
+  if (event === 'SessionStart' || event === 'UserPromptSubmit') {
+    return { raw: text };
   }
 
-  return {
-    json: {
-      hookSpecificOutput: additionalContext ? { additionalContext } : undefined,
-      systemMessage,
-    },
-  };
+  // For other events that need to surface a system message to the user
+  return { json: { systemMessage: text } };
 }
 
 function writeOutput(result) {
-  if (!result) return;
+  if (!result) {
+    process.stdout.write('{}');
+    return;
+  }
   if (typeof result === 'string') {
     process.stdout.write(result);
     return;

@@ -1,16 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 const payload = require('./payload');
-const output = require('./output');
 const trace = require('./trace-utils');
 
 const input = payload.readAndNormalize();
-
-const reminder = [
-  'Beads reminder:',
-  'Update Beads memory before compaction if anything durable changed.',
-  'If you made progress, append a note: `bd update <id> --append-notes "..."`.',
-].join('\n');
 
 const beadsDir = trace.getBeadsDir(process.cwd());
 const stateDir = beadsDir ?? (trace.isBdAvailable() ? trace.getStateDir(input.session_id) : null);
@@ -20,14 +13,12 @@ if (markerPath) {
   try {
     fs.writeFileSync(markerPath, 'pending', 'utf8');
   } catch (err) {
-    // If we can't write the marker, just proceed with the reminder.
+    // If we can't write the marker, rehydration won't happen after compact.
   }
 }
 
-const response = output.emitContext({
-  provider: input.provider,
-  event: input.event,
-  systemMessage: reminder,
-});
-
-output.writeOutput(response || {});
+// This stdout becomes newCustomInstructions for the compaction LLM.
+// Guide it to preserve Beads-relevant state in the summary.
+process.stdout.write(
+  'Preserve in summary: active Beads issue IDs, current task progress, key decisions, and any pending work.',
+);

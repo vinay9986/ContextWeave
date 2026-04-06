@@ -30,10 +30,10 @@ const FILES = [
   '5-context-end.js',
   '6-context-after-agent.js',
   '7-context-after-tool.js',
-  '8-context-after-model.js',
   'payload.js',
   'output.js',
   'trace-utils.js',
+  'doctor.js',
   'setup-onnx.js',
   'package.json',
 ];
@@ -68,6 +68,19 @@ function main() {
 
   // ── 1. Create install directory ────────────────────────────────────────────
   fs.mkdirSync(INSTALL_DIR, { recursive: true });
+
+  // ── 1b. Remove stale files from previous versions ─────────────────────────
+  const STALE_FILES = [
+    '8-context-after-model.js',
+    'mappers/gemini.js',
+  ];
+  for (const stale of STALE_FILES) {
+    const p = path.join(INSTALL_DIR, stale);
+    if (fs.existsSync(p)) {
+      fs.rmSync(p);
+      console.log(`  removed stale: ${stale}`);
+    }
+  }
 
   // ── 2. Copy hook scripts and support files ─────────────────────────────────
   console.log('Copying hook scripts...');
@@ -109,44 +122,27 @@ function main() {
   // ── 7. Print next steps ────────────────────────────────────────────────────
   console.log('\n✓ ContextWeave installed successfully.');
   console.log('\nNext steps:');
-  console.log('  1. Add hook bindings to your provider config (see below).');
-  console.log('  2. Run one prompt through your provider to verify.');
-  console.log('  3. Delete this repo — it is no longer needed.\n');
+  console.log('  1. In each project, run: bd init --stealth');
+  console.log('     (creates .beads/ locally — add .beads/ to .gitignore)');
+  console.log('  2. Merge the hook bindings below into ~/.claude/settings.json');
+  console.log('  3. Restart Claude Code and verify context is injected on startup.\n');
 
   console.log('── Claude Code  (~/.claude/settings.json) ────────────────────────');
   console.log(claudeSnippet());
-  console.log('\n── Gemini CLI  (~/.gemini/settings.json) ────────────────────────');
-  console.log(geminiSnippet());
 }
 
 function claudeSnippet() {
   const d = INSTALL_DIR;
   return JSON.stringify({
     hooks: {
-      SessionStart: [{ matcher: 'startup', hooks: [{ name: 'contextweave-start', type: 'command', command: `node ${d}/1-context-start.js` }] }],
-      UserPromptSubmit: [{ matcher: '*', hooks: [{ name: 'contextweave-before-agent', type: 'command', command: `node ${d}/2-context-before-agent.js` }] }],
-      PreToolUse: [{ matcher: '*', hooks: [{ name: 'contextweave-tool', type: 'command', command: `node ${d}/7-context-after-tool.js` }] }],
-      PostToolUse: [{ matcher: '*', hooks: [{ name: 'contextweave-tool', type: 'command', command: `node ${d}/7-context-after-tool.js` }] }],
-      PostToolUseFailure: [{ matcher: '*', hooks: [{ name: 'contextweave-tool', type: 'command', command: `node ${d}/7-context-after-tool.js` }] }],
-      PreCompact: [{ matcher: '*', hooks: [{ name: 'contextweave-precompress', type: 'command', command: `node ${d}/3-context-precompress.js` }] }],
-      Stop: [{ matcher: '*', hooks: [{ name: 'contextweave-after-agent', type: 'command', command: `node ${d}/6-context-after-agent.js` }] }],
-      SessionEnd: [{ matcher: '*', hooks: [{ name: 'contextweave-end', type: 'command', command: `node ${d}/5-context-end.js` }] }],
-    }
-  }, null, 2);
-}
-
-function geminiSnippet() {
-  const d = INSTALL_DIR;
-  const hp = 'HOOK_PROVIDER=gemini ';
-  return JSON.stringify({
-    hooks: {
-      SessionStart: [{ matcher: 'startup', hooks: [{ name: 'contextweave-start', type: 'command', command: `${hp}node ${d}/1-context-start.js` }] }],
-      BeforeAgent: [{ matcher: '*', hooks: [{ name: 'contextweave-before-agent', type: 'command', command: `${hp}node ${d}/2-context-before-agent.js` }] }],
-      AfterAgent: [{ matcher: '*', hooks: [{ name: 'contextweave-after-agent', type: 'command', command: `${hp}node ${d}/6-context-after-agent.js` }] }],
-      AfterTool: [{ matcher: '*', hooks: [{ name: 'contextweave-after-tool', type: 'command', command: `${hp}node ${d}/7-context-after-tool.js` }] }],
-      AfterModel: [{ matcher: '*', hooks: [{ name: 'contextweave-after-model', type: 'command', command: `${hp}node ${d}/8-context-after-model.js` }] }],
-      PreCompress: [{ matcher: '*', hooks: [{ name: 'contextweave-precompress', type: 'command', command: `${hp}node ${d}/3-context-precompress.js` }] }],
-      SessionEnd: [{ matcher: '*', hooks: [{ name: 'contextweave-end', type: 'command', command: `${hp}node ${d}/5-context-end.js` }] }],
+      SessionStart: [{ matcher: '', hooks: [{ type: 'command', command: `node ${d}/1-context-start.js` }] }],
+      UserPromptSubmit: [{ matcher: '*', hooks: [{ type: 'command', command: `node ${d}/2-context-before-agent.js` }] }],
+      PreToolUse: [{ matcher: '*', hooks: [{ type: 'command', async: true, command: `node ${d}/7-context-after-tool.js` }] }],
+      PostToolUse: [{ matcher: '*', hooks: [{ type: 'command', async: true, command: `node ${d}/7-context-after-tool.js` }] }],
+      PostToolUseFailure: [{ matcher: '*', hooks: [{ type: 'command', async: true, command: `node ${d}/7-context-after-tool.js` }] }],
+      PreCompact: [{ matcher: '*', hooks: [{ type: 'command', command: `node ${d}/3-context-precompress.js` }] }],
+      Stop: [{ matcher: '*', hooks: [{ type: 'command', async: true, command: `node ${d}/6-context-after-agent.js` }] }],
+      SessionEnd: [{ matcher: '*', hooks: [{ type: 'command', async: true, command: `node ${d}/5-context-end.js` }] }],
     }
   }, null, 2);
 }

@@ -10,7 +10,7 @@ const ISSUE_ID_KEYS = new Set(['id', 'issue_id', 'from_id', 'to_id', 'parent_id'
 
 function safe(cmd) {
   try {
-    return execSync(cmd, { encoding: 'utf8' }).trim();
+    return execSync(cmd, { encoding: 'utf8', timeout: 12000 }).trim();
   } catch (err) {
     return '';
   }
@@ -189,7 +189,7 @@ if (shouldBootstrap) {
   const bootstrap = [
     'Bootstrap check (one-time):',
     'Please run a Beads write once to confirm hooks are working.',
-    'Example: `bd create --title \"Hook bootstrap\" --type task --notes \"Gemini CLI hook verification\"`',
+    'Example: `bd create --title \"Hook bootstrap\" --type task --notes \"Claude Code hook verification\"`',
   ].join('\n');
 
   try {
