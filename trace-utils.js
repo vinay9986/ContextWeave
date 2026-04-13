@@ -27,7 +27,7 @@ function getCwd(input) {
 }
 
 function getBeadsDir(cwd) {
-  const dir = path.join(cwd, '.beads');
+  const dir = process.env.BEADS_DIR || path.join(cwd, '.beads');
   return fs.existsSync(dir) ? dir : null;
 }
 

@@ -156,3 +156,11 @@ The `search-beads` binary (installed to PATH) performs semantic search over your
 ```
 search-beads "authentication refactor"
 ```
+
+`search-beads` resolves the store location from `BEADS_DIR` (checked first) then falls back to `.beads/` in the current directory. In stealth mode you must have `BEADS_DIR` set — either export it in your shell profile or prefix the command:
+
+```bash
+BEADS_DIR="$(pwd)/.beads" search-beads "authentication refactor"
+```
+
+> Claude Code hooks already inherit `BEADS_DIR` from the environment set up during `bd init`. This only matters when running `search-beads` manually in a terminal.

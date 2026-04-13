@@ -78,7 +78,10 @@ function dotProduct(a, b) {
 
 function runBd(args, cwd) {
   try {
-    return execFileSync('bd', [...args, '--json', '--quiet'], { cwd, encoding: 'utf8' }).trim();
+    const env = process.env.BEADS_DIR
+      ? { ...process.env }
+      : { ...process.env, BEADS_DIR: path.join(cwd, '.beads') };
+    return execFileSync('bd', [...args, '--json', '--quiet'], { cwd, env, encoding: 'utf8' }).trim();
   } catch (_) {
     return '';
   }
@@ -262,10 +265,10 @@ async function main() {
   const cwd = process.env.SEARCH_BEADS_CWD || process.cwd();
 
   const fs = require('fs');
-  const beadsDir = path.join(cwd, '.beads');
+  const beadsDir = process.env.BEADS_DIR || path.join(cwd, '.beads');
   if (!fs.existsSync(beadsDir)) {
-    process.stderr.write(`No .beads directory found at ${cwd}\n`);
-    process.stderr.write('Run `bd init` to initialise the bead store.\n');
+    process.stderr.write(`No beads store found. Tried: ${beadsDir}\n`);
+    process.stderr.write('Set BEADS_DIR or run `bd init` in the project root.\n');
     process.exit(1);
   }
 
